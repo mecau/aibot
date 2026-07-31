@@ -31,6 +31,10 @@ MY_ADMIN_ID = 1184589026
 logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота и диспетчера
+BOT_TOKEN = "8943335529:AAEhJEp6hEfIUHhM4Nk5Et2Dy69w0FEffxw"
+GROQ_API_KEY = "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"
+
+# Инициализация бота и клиента Groq
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
