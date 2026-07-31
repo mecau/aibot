@@ -624,3 +624,5 @@ async def webhook(request: Request):
 @app.get("/")
 async def health_check():
     return {"status": "ok", "bot": "MecauAI is running"}
+    app = app
+    
