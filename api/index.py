@@ -22,6 +22,9 @@ from config import (
     TEXT_MODEL, VISION_MODEL, PROMPTS, AD_FOOTER
 )
 
+# 1. ОБЯЗАТЕЛЬНО: объявляем app на самом верхнем уровне прямо здесь!
+app = FastAPI()
+
 # Жестко закрепленный административный ID
 MY_ADMIN_ID = 1184589026
 
@@ -30,12 +33,12 @@ logging.basicConfig(level=logging.INFO)
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-app = FastAPI()
 
 groq_client = AsyncOpenAI(
     api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
+
 
 USERS_FILE = "/tmp/users.json"
 FAV_FILE = "/tmp/favorites.json"
