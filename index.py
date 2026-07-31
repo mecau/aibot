@@ -6,6 +6,7 @@ import json
 import os
 import re
 from fastapi import FastAPI, Request, Response
+app = FastAPI()
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -23,7 +24,6 @@ from config import (
 )
 
 # 1. ОБЯЗАТЕЛЬНО: объявляем app на самом верхнем уровне прямо здесь!
-app = FastAPI()
 
 # Жестко закрепленный административный ID
 MY_ADMIN_ID = 1184589026
