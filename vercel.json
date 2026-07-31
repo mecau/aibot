@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "index.py": {
+      "maxDuration": 60
+    }
+  },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "index.py"
+    }
+  ]
+}
