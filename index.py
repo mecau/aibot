@@ -525,4 +525,102 @@ async def handle_photo(message: Message):
     try:
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
-        downloaded_file = await bot.download_file(file_in
+        downloaded_file = await bot.download_file(file_info.file_path)
+        base64_image = base64.b64encode(downloaded_file.read()).decode('utf-8')
+        
+        response = await groq_client.chat.completions.create(
+            model=VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }]
+        )
+        reply = clean_text(response.choices[0].message.content)
+        
+        user_data = get_user_data(user_id)
+        user_data["last_output"] = reply
+
+        full_message = f"{reply}{AD_FOOTER}"
+
+        await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка анализа фото: {e}")
+
+@dp.message(F.text)
+async def handle_text(message: Message):
+    user_id = message.from_user.id
+
+    if user_id == MY_ADMIN_ID and user_id in broadcast_states:
+        broadcast_states.remove(user_id)
+        users = load_user_ids()
+        success, failed = 0, 0
+        
+        status_msg = await message.answer("📢 Начинаю рассылку...")
+        for uid in users:
+            try:
+                await bot.send_message(uid, message.text, disable_web_page_preview=True)
+                success += 1
+            except Exception:
+                failed += 1
+        
+        await status_msg.edit_text(f"✅ Рассылка завершена!\n\n👥 Доставлено: {success}\n❌ Ошибок: {failed}")
+        return
+
+    if message.text in MENU_BUTTONS:
+        return
+
+    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        return
+
+    save_user_id(user_id)
+    user_data = get_user_data(user_id)
+    system_prompt = PROMPTS[user_data["mode"]]
+
+    user_data["history"].append({"role": "user", "content": message.text})
+    if len(user_data["history"]) > 6:
+        user_data["history"] = user_data["history"][-6:]
+
+    strict_system_prompt = (
+        system_prompt + 
+        "\n\nВНИМАНИЕ: Категорически запрещено отвечать списком в 2-3 слова или телеграфным стилем. "
+        "Каждый ответ должен быть развернутой статьей с полными предложениями, абзацами и структурой."
+    )
+    messages_payload = [{"role": "system", "content": strict_system_prompt}] + user_data["history"]
+
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    try:
+        response = await groq_client.chat.completions.create(
+            model=TEXT_MODEL,
+            messages=messages_payload,
+            temperature=0.7
+        )
+        ai_reply = clean_text(response.choices[0].message.content)
+        if not ai_reply:
+            ai_reply = "Готово."
+
+        user_data["history"].append({"role": "assistant", "content": ai_reply})
+        user_data["last_output"] = ai_reply
+
+        full_message = f"{ai_reply}{AD_FOOTER}"
+
+        await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка обработки: {e}")
+
+@app.post("/")
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+        update = Update.model_validate(data, context={"bot": bot})
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        logging.error(f"Error handling update: {e}")
+    return Response(status_code=200)
+
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "bot": "MecauAI is running"}
