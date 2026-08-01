@@ -5,7 +5,6 @@ import io
 import json
 import os
 import re
-from keep_alive import keep_alive
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -785,7 +784,6 @@ async def handle_text(message: Message):
         await message.answer(f"⚠️ Ошибка обработки: {e}")
 
 async def main():
-    keep_alive()
     await bot.set_my_commands([
         BotCommand(command="start", description="Перезапустить бота"),
         BotCommand(command="mode",  description="Сменить режим ассистента"),
