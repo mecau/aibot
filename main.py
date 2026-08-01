@@ -517,15 +517,243 @@ async def handle_document(message: Message):
 
         user_data["history"].append({"role": "user", "content": prompt_payload})
         if len(user_data["history"]) > 6:
-            user_data["history"] = user_data["history"][-6:]
+@dp.message(F.text)
+async def handle_text(message: Message):
+    user_id = message.from_user.id
 
-        strict_system_prompt = (
-            system_prompt + 
-            "\n\nВНИМАНИЕ: Категорически запрещено отвечать списком в 2-3 слова или телеграфным стилем. "
-            "Каждый ответ должен быть развернутой статьей с полными предложениями, абзацами и структурой."
+    # 1. Сначала проверяем служебные состояния (админ-рассылка, генерация презентаций и таблиц)
+    if user_id == MY_ADMIN_ID and user_id in broadcast_states:
+        broadcast_states.remove(user_id)
+        users = load_user_ids()
+        success, failed = 0, 0
+        
+        status_msg = await message.answer("📢 Начинаю рассылку...")
+        for uid in users:
+            try:
+                await bot.send_message(uid, message.text, disable_web_page_preview=True)
+                success += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                failed += 1
+        
+        await status_msg.edit_text(f"✅ Рассылка завершена!\n\n👥 Доставлено: {success}\n❌ Ошибок: {failed}")
+        return
+
+    if user_id in ppt_states:
+        ppt_states.remove(user_id)
+        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        status_msg = await message.answer("📈 Генерирую презентацию, пишу развернутый текст...")
+        try:
+            prompt = message.text
+            response = await groq_client.chat.completions.create(
+                model=TEXT_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Ты — профессиональный академический методист. На основе темы пользователя "
+                            "составь подробную презентацию из 6-8 слайдов. "
+                            "ВНИМАНИЕ: Текст на слайдах (points) должен быть развернутым и содержательным! "
+                            "Пиши полными предложениями (от 15 до 30 слов в каждом пункте), раскрывай суть, чтобы не было пустых слайдов. "
+                            "Ответ выдай строго в формате JSON без лишнего текста: "
+                            "[{\"title\": \"Заголовок\", \"points\": [\"Развернутый тезис 1...\", \"Развернутый тезис 2...\"]}]"
+                        )
+                    },
+                    {"role": "user", "content": f"Тема презентации: {prompt}"}
+                ],
+                temperature=0.7
+            )
+            raw_content = clean_text(response.choices[0].message.content)
+            if "```json" in raw_content:
+                raw_content = raw_content.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_content:
+                raw_content = raw_content.split("```")[1].split("```")[0].strip()
+            
+            slides_data = json.loads(raw_content)
+
+            prs = Presentation()
+            slide_layout = prs.slide_layouts[1]
+
+            title_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(title_layout)
+            
+            title_shape = slide.shapes.title
+            title_shape.text = "Презентация"
+            if title_shape.text_frame.paragraphs:
+                title_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
+                title_shape.text_frame.paragraphs[0].font.size = PptxPt(40)
+
+            subtitle_shape = slide.placeholders[1]
+            subtitle_shape.text = prompt
+            if subtitle_shape.text_frame.paragraphs:
+                subtitle_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
+                subtitle_shape.text_frame.paragraphs[0].font.size = PptxPt(24)
+
+            for item in slides_data:
+                slide = prs.slides.add_slide(slide_layout)
+                
+                title_shape = slide.shapes.title
+                title_shape.text = item.get("title", "Слайд")
+                if title_shape.text_frame.paragraphs:
+                    title_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
+                    title_shape.text_frame.paragraphs[0].font.size = PptxPt(32)
+                
+                tf = slide.placeholders[1].text_frame
+                tf.text = ""
+                for pt in item.get("points", []):
+                    p = tf.add_paragraph()
+                    p.text = pt
+                    p.level = 0
+                    p.font.name = 'Times New Roman'
+                    p.font.size = PptxPt(20)
+
+            bio = io.BytesIO()
+            prs.save(bio)
+            bio.seek(0)
+
+            file_doc = BufferedInputFile(bio.read(), filename="Presentation.pptx")
+            await status_msg.delete()
+            await message.answer_document(file_doc, caption="📈 Твоя развернутая презентация готова!")
+        except Exception as e:
+            await status_msg.delete()
+            await message.answer(f"⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        return
+
+    if user_id in excel_states:
+        excel_states.remove(user_id)
+        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        status_msg = await message.answer("📊 Создаю структуру таблицы Excel...")
+        try:
+            prompt = message.text
+            response = await groq_client.chat.completions.create(
+                model=TEXT_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Ты аналитик данных. На основе запроса пользователя создай подробную и реалистичную таблицу Excel. "
+                            "Она должна содержать как минимум 4-5 столбцов и 5-10 строк данных (если это уместно). "
+                            "Ответ дай строго в формате JSON со списком массивов (строк), где первая строка — заголовки столбцов. "
+                            "Пример формата: [[\"Колонка 1\", \"Колонка 2\"], [\"Данные 1\", \"Данные 2\"]. "
+                            "Никакого другого текста, только JSON."
+                        )
+                    },
+                    {"role": "user", "content": f"Запрос для таблицы: {prompt}"}
+                ],
+                temperature=0.7
+            )
+            raw_content = clean_text(response.choices[0].message.content)
+            if "```json" in raw_content:
+                raw_content = raw_content.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_content:
+                raw_content = raw_content.split("```")[1].split("```")[0].strip()
+
+            table_data = json.loads(raw_content)
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Данные"
+
+            header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+            header_font = Font(name="Times New Roman", size=12, bold=True, color="FFFFFF")
+            regular_font = Font(name="Times New Roman", size=12)
+            thin_border = Border(
+                left=Side(style='thin', color='D9D9D9'),
+                right=Side(style='thin', color='D9D9D9'),
+                top=Side(style='thin', color='D9D9D9'),
+                bottom=Side(style='thin', color='D9D9D9')
+            )
+
+            for row_idx, row in enumerate(table_data, 1):
+                ws.append(row)
+                for col_idx in range(1, len(row) + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.border = thin_border
+                    if row_idx == 1:
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    else:
+                        cell.font = regular_font
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = col[0].column_letter
+                ws.column_dimensions[col_letter].width = max(max_len + 2, 12)
+
+            bio = io.BytesIO()
+            wb.save(bio)
+            bio.seek(0)
+
+            file_doc = BufferedInputFile(bio.read(), filename="Table.xlsx")
+            await status_msg.delete()
+            await message.answer_document(file_doc, caption="📊 Твоя таблица Excel готова!")
+        except Exception as e:
+            await status_msg.delete()
+            await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        return
+
+    # 2. Проверяем точный вопрос о создателе (сделали строгое условие, чтобы не перебивать обычный текст)
+    text_lower = message.text.lower().strip()
+    creator_keywords = [
+        "кто твой создатель", "кто тебя создал", "тебя кто создал", 
+        "кто твой разработчик", "автор кто", "кто тебя сделал",
+        "кто твой создатель?", "кто тебя создал?", "тебя кто создал?", 
+        "кто твой разработчик?", "автор кто?", "кто тебя сделал?"
+    ]
+    if text_lower in creator_keywords:
+        creator_reply = (
+            "Меня создал один единственный человек — мой разработчик и идейный вдохновитель **@mecau** 🚀\n\n"
+            "Именно он написал весь код, настроил мою логику, чтобы я помогал с учебой[span_0](start_span)[span_0](end_span), текстами, презентациями и таблицами, "
+            "и продолжает постоянно меня улучшать.\n\n"
+            "Так что по всем вопросам разработки и создания обращайся напрямую к нему!\n\n"
+            "—\n⚡ Есть предложения по улучшению или нашли баг? пишите @mecau"
         )
-        messages_payload = [{"role": "system", "content": strict_system_prompt}] + user_data["history"]
+        await message.answer(creator_reply, parse_mode="HTML", disable_web_page_preview=True)
+        return
 
+    # 3. Обработка кнопки создания титульника через текст (на случай, если клавиатура сбоит)
+    if message.text == "📑 Создать титульник ГОСТ":
+        if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+            await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+            return
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📘 Индивидуальный проект", callback_data="gost_project")],
+            [InlineKeyboardButton(text="📗 Курсовая работа",        callback_data="gost_coursework")],
+            [InlineKeyboardButton(text="📕 Дипломная работа (ВКР)", callback_data="gost_diploma")],
+            [InlineKeyboardButton(text="📙 Отчёт по практике",      callback_data="gost_practice")],
+        ])
+        await message.answer("📑 Выбери тип работы для титульника:", reply_markup=kb)
+        return
+
+    # 4. Пропускаем стандартные кнопки меню из дальнейшей генерации ИИ
+    if message.text in MENU_BUTTONS:
+        return
+
+    # 5. Проверка подписки для обычных текстовых запросов к ИИ
+    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        return
+
+    # 6. Основной блок генерации ответа от ИИ (Groq)
+    save_user_id(user_id)
+    user_data = get_user_data(user_id)
+    system_prompt = PROMPTS[user_data["mode"]]
+
+    user_data["history"].append({"role": "user", "content": message.text})
+    if len(user_data["history"]) > 6:
+        user_data["history"] = user_data["history"][-6:]
+
+    strict_system_prompt = (
+        system_prompt + 
+        "\n\nВНИМАНИЕ: Категорически запрещено отвечать списком в 2-3 слова или телеграфным стилем. "
+        "Каждый ответ должен быть развернутой статьей с полными предложениями, абзацами и структурой."
+    )
+    messages_payload = [{"role": "system", "content": strict_system_prompt}] + user_data["history"]
+
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    try:
         response = await groq_client.chat.completions.create(
             model=TEXT_MODEL,
             messages=messages_payload,
