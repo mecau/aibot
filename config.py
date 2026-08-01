@@ -10,7 +10,7 @@ CHANNEL_URL = "https://t.me/mecauinfo"
 TEXT_MODEL = "llama-3.3-70b-versatile"
 VISION_MODEL = "llama-3.2-11b-vision-preview"
 
-AD_FOOTER = "\n\n—\n⚡ Нужна учебная работа под заказ? пиши [mecau](https://t.me/mecauinfo)"
+AD_FOOTER = "\n\n—\n⚡ Нужна учебная работа под заказ? пиши @mecau"
 
 PROMPTS = {
     "ai": (
