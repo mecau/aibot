@@ -1,0 +1,7 @@
+aiogram
+openai
+aiohttp
+python-docx
+python-pptx
+openpyxl
+requests
