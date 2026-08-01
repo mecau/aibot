@@ -327,7 +327,7 @@ async def cb_answer_actions(callback: types.CallbackQuery):
                 disable_web_page_preview=True
             )
         except Exception as e:
-            await callback.message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+            await callback.message.answer(f"⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 @dp.message(F.text == "📄 Скачать ответ в Word")
 async def cmd_download_word(message: Message):
@@ -340,7 +340,7 @@ async def cmd_download_word(message: Message):
     text_to_save = user_data.get("last_output", "").strip()
 
     if not text_to_save or text_to_save == "Здесь пока нет ответов.":
-        await message.answer("⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     doc = Document()
@@ -477,7 +477,7 @@ async def handle_document(message: Message):
     file_name = doc_file.file_name or "file"
     
     if doc_file.file_size and doc_file.file_size > 10 * 1024 * 1024:
-        await message.answer("⚠️ ⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -498,7 +498,7 @@ async def handle_document(message: Message):
                 file_content_text = file_bytes.decode("cp1251", errors="ignore")
 
         if not file_content_text.strip():
-            await message.answer("⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+            await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
             return
 
         if len(file_content_text) > 15000:
@@ -542,7 +542,7 @@ async def handle_document(message: Message):
 
         await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer(f"⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 @dp.message(F.photo)
 async def handle_photo(message: Message):
@@ -579,7 +579,7 @@ async def handle_photo(message: Message):
 
         await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer(f"⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 @dp.message(F.text)
 async def handle_text(message: Message):
@@ -679,7 +679,7 @@ async def handle_text(message: Message):
             await message.answer_document(file_doc, caption="📈 Твоя развернутая презентация готова!")
         except Exception as e:
             await status_msg.delete()
-            await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+            await message.answer(f"⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     if user_id in excel_states:
@@ -797,7 +797,7 @@ async def handle_text(message: Message):
 
         await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer(f"⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 async def main():
     await bot.set_my_commands([
@@ -806,7 +806,7 @@ async def main():
         BotCommand(command="about", description="О возможностях"),
     ])
     
-    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.delete_webhook()
     
     # Бесконечный цикл с автоперезапуском при обрывах связи
     while True:
@@ -814,7 +814,7 @@ async def main():
             print("🚀 Бот MecauAI запущен и слушает обновления...")
             await dp.start_polling(bot)
         except Exception as e:
-            print(f"⚠️ Ошибка соединения: {e}. Перезапуск через 5 секунд...")
+            print(f"⚠️ Ошибка соединения:Перезапуск через 5 секунд...")
             await asyncio.sleep(5)
 
 if __name__ == "__main__":
