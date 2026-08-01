@@ -327,7 +327,7 @@ async def cb_answer_actions(callback: types.CallbackQuery):
                 disable_web_page_preview=True
             )
         except Exception as e:
-            await callback.message.answer(f"⚠️ Ошибка при упрощении: {e}")
+            await callback.message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 @dp.message(F.text == "📄 Скачать ответ в Word")
 async def cmd_download_word(message: Message):
@@ -340,7 +340,7 @@ async def cmd_download_word(message: Message):
     text_to_save = user_data.get("last_output", "").strip()
 
     if not text_to_save or text_to_save == "Здесь пока нет ответов.":
-        await message.answer("⚠️ У тебя еще нет ответов от ИИ, которые можно сохранить. Сначала отправь запрос!")
+        await message.answer("⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     doc = Document()
@@ -361,7 +361,23 @@ async def cmd_download_word(message: Message):
 
     file_doc = BufferedInputFile(bio.read(), filename="MecauAI_Answer.docx")
     await message.answer_document(file_doc, caption="📄 Вот твой ответ в формате Word!")
-
+@dp.message(F.text)
+async def handle_text(message: Message):
+    user_id = message.from_user.id
+        # Проверка на вопросы о создателе
+    text_lower = message.text.lower()
+    creator_keywords = ["кто твой создатель", "кто тебя создал", "тебя кто создал", "кто твой разработчик", "автор кто", "кто тебя сделал"]
+    if any(keyword in text_lower for keyword in creator_keywords):
+        creator_reply = (
+            "Меня создал один единственный человек — мой разработчик и идейный вдохновитель @mecau 🚀\n\n"
+            "Именно он написал весь код, настроил мою логику, чтобы я помогал с учебой[span_0](start_span)[span_0](end_span), текстами, презентациями и таблицами, "
+            "и продолжает постоянно меня улучшать.\n\n"
+            "Так что по всем вопросам разработки и создания обращайся напрямую к нему!\n\n"
+            "—\n⚡ Есть предложения по улучшению или нашли баг? пишите @mecau"
+        )
+        await message.answer(creator_reply, parse_mode="HTML", disable_web_page_preview=True)
+        return
+        
 @dp.message(F.text == "📑 Создать титульник ГОСТ")
 async def cmd_gost_title(message: Message):
     if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
@@ -461,7 +477,7 @@ async def handle_document(message: Message):
     file_name = doc_file.file_name or "file"
     
     if doc_file.file_size and doc_file.file_size > 10 * 1024 * 1024:
-        await message.answer("⚠️ Файл слишком большой. Максимальный размер — 10 МБ.")
+        await message.answer("⚠️ ⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -482,7 +498,7 @@ async def handle_document(message: Message):
                 file_content_text = file_bytes.decode("cp1251", errors="ignore")
 
         if not file_content_text.strip():
-            await message.answer("⚠️ Не удалось прочитать текст из этого файла или он пустой.")
+            await message.answer("⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
             return
 
         if len(file_content_text) > 15000:
@@ -526,7 +542,7 @@ async def handle_document(message: Message):
 
         await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка при обработке файла: {e}")
+        await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 @dp.message(F.photo)
 async def handle_photo(message: Message):
@@ -563,7 +579,7 @@ async def handle_photo(message: Message):
 
         await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка анализа фото: {e}")
+        await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 @dp.message(F.text)
 async def handle_text(message: Message):
@@ -663,7 +679,7 @@ async def handle_text(message: Message):
             await message.answer_document(file_doc, caption="📈 Твоя развернутая презентация готова!")
         except Exception as e:
             await status_msg.delete()
-            await message.answer(f"⚠️ Не удалось сгенерировать презентацию: {e}")
+            await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     if user_id in excel_states:
@@ -738,7 +754,7 @@ async def handle_text(message: Message):
             await message.answer_document(file_doc, caption="📊 Твоя таблица Excel готова!")
         except Exception as e:
             await status_msg.delete()
-            await message.answer(f"⚠️ Не удалось создать таблицу: {e}")
+            await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     if message.text in MENU_BUTTONS:
@@ -781,7 +797,7 @@ async def handle_text(message: Message):
 
         await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception as e:
-        await message.answer(f"⚠️ Ошибка обработки: {e}")
+        await message.answer(f"⚠️ Ошибка при обработке: {e}\n\nЕсли это повторяется, сообщи разработчику: @mecau")
 
 async def main():
     await bot.set_my_commands([
