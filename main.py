@@ -575,9 +575,10 @@ async def handle_text(message: Message):
                             s.shapes.add_picture(img_stream, left=PptxInches(8.0), top=PptxInches(1.8), width=PptxInches(4.5))
                         except Exception as img_err:
                             logging.error(f"Не удалось вставить картинку на слайд {idx}: {img_err}")
-    if user_id in ppt_states:
+        if user_id in ppt_states:
         ppt_states.remove(user_id)
-        status_msg = await message.answer("📈 Генерирую презентацию и иллюстрации, подожди немного...")
+        status_msg = await message.answer("📈 Генерирую презентацию, подожите немного...")
+)
         try:
             await bot.send_chat_action(chat_id=message.chat.id, action="typing")
             prompt = message.text
