@@ -23,7 +23,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from config import (
-    BOT_TOKEN, GROQ_API_KEY, CHANNEL_USERNAME, CHANNEL_URL,
+    BOT_TOKEN, GROQ_API_KEY, 
+    CHANNEL_1_USERNAME, CHANNEL_1_URL,
+    CHANNEL_2_USERNAME, CHANNEL_2_URL,
     TEXT_MODEL, VISION_MODEL, PROMPTS, AD_FOOTER
 )
 
@@ -41,21 +43,29 @@ groq_client = AsyncOpenAI(
 USERS_FILE = "users.json"
 FAV_FILE = "favorites.json"
 
+all_users_cache = set()
+
 def load_user_ids() -> set:
     if os.path.exists(USERS_FILE):
         try:
-            with open(USERS_FILE, "r") as f:
-                return set(json.load(f))
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return set(data)
         except Exception:
             pass
     return set()
 
 def save_user_id(user_id: int):
-    ids = load_user_ids()
-    if user_id not in ids:
-        ids.add(user_id)
-        with open(USERS_FILE, "w") as f:
-            json.dump(list(ids), f)
+    global all_users_cache
+    all_users_cache.add(user_id)
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(all_users_cache), f, ensure_ascii=False)
+    except Exception as e:
+        logging.error(f"Не удалось сохранить пользователя: {e}")
+
+all_users_cache = load_user_ids()
 
 def load_favorites() -> dict:
     if os.path.exists(FAV_FILE):
@@ -83,6 +93,7 @@ users_db = {}
 broadcast_states = set()
 ppt_states = set()
 excel_states = set()
+user_ppt_images = {}
 
 def get_user_data(user_id: int):
     if user_id not in users_db:
@@ -94,17 +105,20 @@ def get_user_data(user_id: int):
     return users_db[user_id]
 
 async def check_subscription(user_id: int) -> bool:
-    try:
-        member = await bot.get_chat_member(chat_id=f"@{CHANNEL_USERNAME}", user_id=user_id)
-        if member.status in ["creator", "administrator", "member"]:
-            return True
-    except Exception:
-        pass
-    return False
+    channels = [CHANNEL_1_USERNAME, CHANNEL_2_USERNAME]
+    for ch in channels:
+        try:
+            member = await bot.get_chat_member(chat_id=f"@{ch}", user_id=user_id)
+            if member.status not in ["creator", "administrator", "member"]:
+                return False
+        except Exception:
+            return False
+    return True
 
 def get_sub_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Подписаться на канал", url=CHANNEL_URL)],
+        [InlineKeyboardButton(text="📢 Подписаться на канал 1", url=CHANNEL_1_URL)],
+        [InlineKeyboardButton(text="📢 Подписаться на канал 2", url=CHANNEL_2_URL)],
         [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub")]
     ])
 
@@ -142,9 +156,8 @@ def get_answer_inline_keyboard():
         ]
     ])
 
-def clean_text(text: str) -> str:
+def clean_text_for_html(text: str) -> str:
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = text.replace("**", "").replace("*", "")
     return text.strip()
 
 @dp.message(CommandStart())
@@ -156,8 +169,9 @@ async def cmd_start(message: Message):
         if not await check_subscription(user_id):
             await message.answer(
                 f"🔒 Доступ заблокирован!\n\n"
-                f"Чтобы пользоваться MecauAI, подпишись на наш канал:\n"
-                f" 👉 {CHANNEL_URL}\n\n"
+                f"Чтобы пользоваться MecauAI, подпишись на оба наших канала:\n"
+                f" 👉 {CHANNEL_1_URL}\n"
+                f" 👉 {CHANNEL_2_URL}\n\n"
                 f"После подписки нажми кнопку ниже 👇",
                 reply_markup=get_sub_keyboard()
             )
@@ -165,7 +179,7 @@ async def cmd_start(message: Message):
 
     start_text = (
         f"Привет, {message.from_user.first_name}! Ты активировал MecauAI 🚀\n\n"
-        "Я твой карманный помощник для учебы. Отправляй любые вопросы, задачи, конспекты, а также создавай презентации с иллюстрациями и таблицы!"
+        "Я твой карманный помощник для учебы и разработки. Отправляй любые вопросы, задачи, код или создавай презентации!"
     )
     await message.answer(start_text, reply_markup=keyboard_for(user_id))
 
@@ -176,27 +190,25 @@ async def cb_check_sub(callback: types.CallbackQuery):
         save_user_id(user_id)
         await callback.message.delete()
         await callback.message.answer(
-            "🎉 Подписка подтверждена! Добро пожаловать в MecauAI 🚀",
+            "🎉 Подписка на оба канала подтверждена! Добро пожаловать в MecauAI 🚀",
             reply_markup=keyboard_for(user_id)
         )
     else:
-        await callback.answer("❌ Ты еще не подписался на канал!", show_alert=True)
+        await callback.answer("❌ Ты подписался еще не на все каналы!", show_alert=True)
 
 @dp.message(F.text == "ℹ️ О MecauAI")
 @dp.message(Command("about"))
 async def cmd_about(message: Message):
     if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     about_text = (
         "🧠 Возможности MecauAI:\n\n"
-        "• AI-Ассистент и Друг: Помогает учиться и поддерживает в сложные ситуации.\n"
-        "• Анализ фото/файлов/текста: Быстрый разбор материалов и конспектов.\n"
-        "• 📄 Экспорт в .docx: Сохранение любого ответа в Word.\n"
-        "• 📑 Титульник по ГОСТу: Быстрое оформление титульных листов.\n"
-        "• 📈 Генерация презентаций (.pptx) с ИИ-картинками.\n"
-        "• 📊 Создание таблиц Excel (.xlsx): Аккуратные структурированные данные.\n"
-        "• ⭐ Избранное: Сохранение важных ответов под рукой."
+        "• 💻 Режим «ИИ-Программист»: Написание чистого кода с копированием в 1 клик.\n"
+        "• 🧠 Академический ассистент и Лучший друг.\n"
+        "• 📄 Экспорт в .docx и Титульники по ГОСТу.\n"
+        "• 📈 Генерация презентаций (.pptx) с твоими или ИИ-картинками.\n"
+        "• 📊 Таблицы Excel (.xlsx) и Избранное."
     )
     await message.answer(about_text, reply_markup=keyboard_for(message.from_user.id))
 
@@ -204,9 +216,10 @@ async def cmd_about(message: Message):
 @dp.message(Command("mode"))
 async def cmd_mode(message: Message):
     if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💻 ИИ-Программист",       callback_data="set_mode_coder")],
         [InlineKeyboardButton(text="🧠 Академический ассистент", callback_data="set_mode_ai")],
         [InlineKeyboardButton(text="🫂 Лучший друг",             callback_data="set_mode_friend")]
     ])
@@ -217,8 +230,13 @@ async def cb_set_mode(callback: types.CallbackQuery):
     mode = callback.data.split("_")[-1]
     user_data = get_user_data(callback.from_user.id)
     user_data["mode"] = mode
-    name = "Академический ассистент 🧠" if mode == "ai" else "Лучший друг 🫂"
-    await callback.message.edit_text(f"Режим переключен на: {name}")
+    
+    names = {
+        "coder": "ИИ-Программист 💻",
+        "ai": "Академический ассистент 🧠",
+        "friend": "Лучший друг 🫂"
+    }
+    await callback.message.edit_text(f"Режим переключен на: {names.get(mode, 'Стандартный')}")
     await callback.answer()
 
 @dp.message(F.text == "📊 Статистика бота")
@@ -239,16 +257,20 @@ async def cmd_broadcast_prompt(message: Message):
 async def cmd_ppt_prompt(message: Message):
     user_id = message.from_user.id
     if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     ppt_states.add(user_id)
-    await message.answer("📈 Отправь тему для презентации следующим сообщением, и я соберу слайды (.pptx), самостоятельно сгенерировав красивые иллюстрации под каждый слайд!")
+    user_ppt_images.pop(user_id, None)
+    await message.answer(
+        "📈 Отправь тему презентации следующим сообщением.\n\n"
+        "💡 *Хочешь добавить свои картинки?* Сначала отправь фото, а затем отправь тему презентации!"
+    , parse_mode="Markdown")
 
 @dp.message(F.text == "📊 Создать таблицу Excel")
 async def cmd_excel_prompt(message: Message):
     user_id = message.from_user.id
     if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     excel_states.add(user_id)
     await message.answer("📊 Опиши задачу или тему для таблицы следующим сообщением, и я сформирую аккуратный Excel-файл (.xlsx)!")
@@ -257,7 +279,7 @@ async def cmd_excel_prompt(message: Message):
 async def cmd_favorites(message: Message):
     user_id = message.from_user.id
     if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
     favs = load_favorites()
@@ -265,7 +287,7 @@ async def cmd_favorites(message: Message):
     user_favs = favs.get(uid_str, [])
 
     if not user_favs:
-        await message.answer("⭐ У тебя пока нет сохраненных ответов в избранном.\nНажимай кнопку «⭐ В избранное» под сообщениями бота!")
+        await message.answer("⭐ У тебя пока нет сохраненных ответов в избранном.")
         return
 
     await message.answer(f"⭐ Твои сохраненные ответы ({len(user_favs)}):")
@@ -278,15 +300,9 @@ async def cmd_favorites(message: Message):
 @dp.callback_query(F.data.in_({"btn_simplify", "btn_save_fav"}))
 async def cb_answer_actions(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    user_data = get_user_data(user_id)
-    
     msg_text = callback.message.text or callback.message.caption or ""
     
-    if "—\n⚡" in msg_text:
-        clean_msg = msg_text.split("—\n⚡")[0].strip()
-    else:
-        clean_msg = msg_text.strip()
-
+    clean_msg = msg_text.split("—\n⚡")[0].strip() if "—\n⚡" in msg_text else msg_text.strip()
     if not clean_msg:
         await callback.answer("⚠️ Нечего обрабатывать!", show_alert=True)
         return
@@ -294,53 +310,34 @@ async def cb_answer_actions(callback: types.CallbackQuery):
     if callback.data == "btn_save_fav":
         add_to_favorites(user_id, clean_msg)
         await callback.answer("⭐ Успешно сохранено в избранное!", show_alert=True)
-
     elif callback.data == "btn_simplify":
         await callback.answer("💡 Сжимаю до сути...")
         try:
             response = await groq_client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Ты — помощник, который объясняет сложные вещи предельно просто и коротко. "
-                            "ПРАВИЛО: дай краткое объяснение в 3–5 предложениях максимум — как другу на пальцах. "
-                            "Никаких длинных лекций, никакой воды. Только суть, простым языком."
-                        )
-                    },
-                    {"role": "user", "content": f"Объясни коротко и просто, самую суть:\n\n{clean_msg}"}
+                    {"role": "system", "content": "Объясни предельно коротко и просто в 3-5 предложениях."},
+                    {"role": "user", "content": clean_msg}
                 ],
                 temperature=0.7
             )
-            simplified_reply = clean_text(response.choices[0].message.content)
-            user_data["last_output"] = simplified_reply
-            
-            if user_data["history"]:
-                user_data["history"][-1]["content"] = f"[Упрощено до сути]: {simplified_reply}"
-
+            simplified_reply = clean_text_for_html(response.choices[0].message.content)
             full_reply = f"💡 <b>Коротко на пальцах:</b>\n\n{simplified_reply}{AD_FOOTER}"
-            await callback.message.answer(
-                full_reply,
-                reply_markup=get_answer_inline_keyboard(),
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
-        except Exception as e:
-            await callback.message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+            await callback.message.answer(full_reply, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
+        except Exception:
+            await callback.message.answer("⚠️ Ошибка при обработке.")
 
 @dp.message(F.text == "📄 Скачать ответ в Word")
 async def cmd_download_word(message: Message):
     user_id = message.from_user.id
     if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
     user_data = get_user_data(user_id)
     text_to_save = user_data.get("last_output", "").strip()
-
     if not text_to_save or text_to_save == "Здесь пока нет ответов.":
-        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer("⚠️ Нет данных для сохранения.")
         return
 
     doc = Document()
@@ -365,7 +362,7 @@ async def cmd_download_word(message: Message):
 @dp.message(F.text == "📑 Создать титульник ГОСТ")
 async def cmd_gost_title(message: Message):
     if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📘 Индивидуальный проект", callback_data="gost_project")],
@@ -414,23 +411,13 @@ async def cb_gost_generate(callback: types.CallbackQuery):
             p = doc.add_paragraph()
             p.add_run("").font.name = 'Times New Roman'
 
-    add_centered(
-        "ФЕДЕРАЛЬНОЕ ГОСУДАРСТВЕННОЕ БЮДЖЕТНОЕ ПРОФЕССИОНАЛЬНОЕ\n"
-        "ОБРАЗОВАТЕЛЬНОЕ УЧРЕЖДЕНИЕ\n"
-        "«НАЗВАНИЕ КОЛЛЕДЖА»",
-        size=14
-    )
+    add_centered("ФЕДЕРАЛЬНОЕ ГОСУДАРСТВЕННОЕ БЮДЖЕТНОЕ ПРОФЕССИОНАЛЬНОЕ\nОБРАЗОВАТЕЛЬНОЕ УЧРЕЖДЕНИЕ\n«НАЗВАНИЕ КОЛЛЕДЖА»", size=14)
     add_empty(4)
     add_centered(work_label, size=14, bold=True)
     add_empty(1)
     add_centered("на тему:\n«Введи тему работы здесь»", size=14, bold=True)
     add_empty(6)
-    add_right(
-        "Выполнил(а): студент(ка) группы ГРУППА\n"
-        "Фамилия Имя Отчество\n\n"
-        "Руководитель:\n"
-        "Должность, Фамилия И.О."
-    )
+    add_right("Выполнил(а): студент(ка) группы ГРУППА\nФамилия Имя Отчество\n\nРуководитель:\nДолжность, Фамилия И.О.")
     add_empty(5)
     add_centered("Город — 2026", size=14)
 
@@ -449,120 +436,45 @@ MENU_BUTTONS = {
     "📢 Сделать рассылку", "📊 Статистика бота"
 }
 
-@dp.message(F.document)
-async def handle_document(message: Message):
-    user_id = message.from_user.id
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
-        return
-
-    save_user_id(user_id)
-    doc_file = message.document
-    file_name = doc_file.file_name or "file"
-    
-    if doc_file.file_size and doc_file.file_size > 10 * 1024 * 1024:
-        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
-        return
-
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-    try:
-        file_info = await bot.get_file(doc_file.file_id)
-        downloaded = await bot.download_file(file_info.file_path)
-        file_bytes = downloaded.read()
-
-        file_content_text = ""
-        if file_name.endswith(".docx"):
-            doc_obj = Document(io.BytesIO(file_bytes))
-            file_content_text = "\n".join([p.text for p in doc_obj.paragraphs if p.text.strip()])
-        else:
-            try:
-                file_content_text = file_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                file_content_text = file_bytes.decode("cp1251", errors="ignore")
-
-        if not file_content_text.strip():
-            await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
-            return
-
-        if len(file_content_text) > 15000:
-            file_content_text = file_content_text[:15000] + "\n[...текст файла обрезан из-за большой длины...]"
-
-        user_prompt = message.caption or "Проанализируй содержимое этого файла, сделай выводы или реши задачу в нем."
-        
-        user_data = get_user_data(user_id)
-        system_prompt = PROMPTS[user_data["mode"]]
-
-        prompt_payload = (
-            f"Пользователь прикрепил файл '{file_name}'. Вот его содержимое:\n\n"
-            f"```\n{file_content_text}\n```\n\n"
-            f"Задание пользователя к файлу: {user_prompt}"
-        )
-
-        user_data["history"].append({"role": "user", "content": prompt_payload})
-        if len(user_data["history"]) > 6:
-            user_data["history"] = user_data["history"][-6:]
-
-        strict_system_prompt = (
-            system_prompt + 
-            "\n\nВНИМАНИЕ: Категорически запрещено отвечать списком в 2-3 слова или телеграфным стилем. "
-            "Каждый ответ должен быть развернутой статьей с полными предложениями, абзацами и структурой."
-        )
-        messages_payload = [{"role": "system", "content": strict_system_prompt}] + user_data["history"]
-
-        response = await groq_client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=messages_payload,
-            temperature=0.7
-        )
-        ai_reply = clean_text(response.choices[0].message.content)
-        if not ai_reply:
-            ai_reply = "Готово."
-
-        user_data["history"].append({"role": "assistant", "content": ai_reply})
-        user_data["last_output"] = ai_reply
-
-        full_message = f"{ai_reply}{AD_FOOTER}"
-
-        await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
-    except Exception as e:
-        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
-
 @dp.message(F.photo)
 async def handle_photo(message: Message):
     user_id = message.from_user.id
     if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
     save_user_id(user_id)
-    prompt = message.caption or "Проанализируй это учебное изображение, сделай конспект и выдели суть."
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    photo = message.photo[-1]
+    file_info = await bot.get_file(photo.file_id)
+    downloaded_file = await bot.download_file(file_info.file_path)
+    img_bytes = downloaded_file.read()
+
+    if user_id not in user_ppt_images:
+        user_ppt_images[user_id] = []
+    user_ppt_images[user_id].append(img_bytes)
+
+    if user_id in ppt_states:
+        await message.answer(f"🖼 Картинка сохранена ({len(user_ppt_images[user_id])} шт.)! Теперь отправь тему презентации.")
+        return
+
     try:
-        photo = message.photo[-1]
-        file_info = await bot.get_file(photo.file_id)
-        downloaded_file = await bot.download_file(file_info.file_path)
-        base64_image = base64.b64encode(downloaded_file.read()).decode('utf-8')
-        
+        base64_image = base64.b64encode(img_bytes).decode('utf-8')
         response = await groq_client.chat.completions.create(
             model=VISION_MODEL,
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
+                    {"type": "text", "text": message.caption or "Проанализируй изображение."},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                 ]
             }]
         )
-        reply = clean_text(response.choices[0].message.content)
-        
+        reply = clean_text_for_html(response.choices[0].message.content)
         user_data = get_user_data(user_id)
         user_data["last_output"] = reply
-
-        full_message = f"{reply}{AD_FOOTER}"
-
-        await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
-    except Exception as e:
-        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        await message.answer(f"{reply}{AD_FOOTER}", parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
+    except Exception:
+        await message.answer("⚠️ Ошибка при обработке изображения.")
 
 @dp.message(F.text)
 async def handle_text(message: Message):
@@ -572,7 +484,6 @@ async def handle_text(message: Message):
         broadcast_states.remove(user_id)
         users = load_user_ids()
         success, failed = 0, 0
-        
         status_msg = await message.answer("📢 Начинаю рассылку...")
         for uid in users:
             try:
@@ -581,240 +492,103 @@ async def handle_text(message: Message):
                 await asyncio.sleep(0.05)
             except Exception:
                 failed += 1
-        
         await status_msg.edit_text(f"✅ Рассылка завершена!\n\n👥 Доставлено: {success}\n❌ Ошибок: {failed}")
         return
 
     if user_id in ppt_states:
         ppt_states.remove(user_id)
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        status_msg = await message.answer("📈 Генерирую структуру, пишу тексты и создаю уникальные иллюстрации для слайдов...")
+        status_msg = await message.answer("📈 Генерирую презентацию...")
         try:
-            prompt = message.text
-            
+    prompt = message.text
             response = await groq_client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[
                     {
                         "role": "system",
-                        "content": (
-                            "Ты — профессиональный академический методист и дизайнер презентаций. "
-                            "На основе темы пользователя составь презентацию из 6–8 структурированных слайдов. "
-                            "Для каждого слайда укажи заголовок (title), содержательные тезисы (points) в виде полных предложений "
-                            "и краткое описание для иллюстрации на английском языке (image_prompt), которая подходит по смыслу к слайду. "
-                            "Ответ выдай СТРОГО в формате JSON без какого-либо лишнего текста: "
-                            "[{\"title\": \"Заголовок\", \"points\": [\"Тезис 1...\", \"Тезис 2...\"], \"image_prompt\": \"Minimalist professional vector illustration of...\"}]"
-                        )
+                        "content": "Составь презентацию из 6-8 слайдов. Ответ выдай СТРОГО в формате JSON без лишнего текста: [{\"title\": \"Заголовок\", \"points\": [\"Тезис 1\"]}]"
                     },
-                    {"role": "user", "content": f"Тема презентации: {prompt}"}
+                    {"role": "user", "content": f"Тема: {prompt}"}
                 ],
                 temperature=0.7
             )
-            raw_content = clean_text(response.choices[0].message.content)
+            raw_content = clean_text_for_html(response.choices[0].message.content)
             if "```json" in raw_content:
                 raw_content = raw_content.split("```json")[1].split("```")[0].strip()
             elif "```" in raw_content:
                 raw_content = raw_content.split("```")[1].split("```")[0].strip()
             
             slides_data = json.loads(raw_content)
-
             prs = Presentation()
             prs.slide_width = PptxInches(13.333)
             prs.slide_height = PptxInches(7.5)
 
-            title_layout = prs.slide_layouts[0]
-            blank_layout = prs.slide_layouts[6]
+            slide = prs.slides.add_slide(prs.slide_layouts[0])
+            slide.shapes.title.text = "Академическая презентация"
+            slide.placeholders[1].text = prompt
 
-            # Титульный слайд
-            slide = prs.slides.add_slide(title_layout)
-            title_shape = slide.shapes.title
-            title_shape.text = "Академическая презентация"
-            if title_shape.text_frame.paragraphs:
-                title_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
-                title_shape.text_frame.paragraphs[0].font.size = PptxPt(40)
-                title_shape.text_frame.paragraphs[0].font.bold = True
+            user_images = user_ppt_images.pop(user_id, [])
 
-            subtitle_shape = slide.placeholders[1]
-            subtitle_shape.text = prompt
-            if subtitle_shape.text_frame.paragraphs:
-                subtitle_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
-                subtitle_shape.text_frame.paragraphs[0].font.size = PptxPt(24)
-
-            # Генерация содержательных слайдов
-            for item in slides_data:
-                slide = prs.slides.add_slide(blank_layout)
+            for idx, item in enumerate(slides_data):
+                s = prs.slides.add_slide(prs.slide_layouts[6])
+                tb_title = s.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
+                tb_title.text_frame.text = item.get("title", "Слайд")
                 
-                tb_title = slide.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
-                tf_title = tb_title.text_frame
-                tf_title.word_wrap = True
-                p_title = tf_title.paragraphs[0]
-                p_title.text = item.get("title", "Слайд")
-                p_title.font.name = 'Times New Roman'
-                p_title.font.size = PptxPt(30)
-                p_title.font.bold = True
+                has_img = False
+                img_stream = None
+                if user_images:
+                    img_stream = io.BytesIO(user_images[idx % len(user_images)])
+                    has_img = True
 
-                tb_content = slide.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8), PptxInches(5.0))
-                tf_content = tb_content.text_frame
-                tf_content.word_wrap = True
-                
+                tb_content = s.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8) if has_img else PptxInches(11.7), PptxInches(5.0))
+                tf = tb_content.text_frame
+                tf.word_wrap = True
                 for pt in item.get("points", []):
-                    p = tf_content.add_paragraph() if tf_content.text else tf_content.paragraphs[0]
+                    p = tf.add_paragraph() if tf.text else tf.paragraphs[0]
                     p.text = "• " + pt
                     p.font.name = 'Times New Roman'
                     p.font.size = PptxPt(18)
-                    p.space_after = PptxPt(12)
 
-                img_prompt = item.get("image_prompt")
-                if img_prompt:
+                if has_img and img_stream:
                     try:
-                        img_response = await groq_client.images.generate(
-                            model="dall-e-3",
-                            prompt=img_prompt + ", clean professional educational vector style, light background",
-                            size="1024x1024",
-                            quality="standard",
-                            n=1,
-                        )
-                        image_url = img_response.data[0].url
-                        
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(image_url) as resp:
-                                if resp.status == 200:
-                                    img_bytes = await resp.read()
-                                    image_stream = io.BytesIO(img_bytes)
-                                    slide.shapes.add_picture(
-                                        image_stream, 
-                                        left=PptxInches(8.0), 
-                                        top=PptxInches(1.8), 
-                                        width=PptxInches(4.5)
-                                    )
-                    except Exception as img_err:
-                        logging.warning(f"Не удалось сгенерировать картинку для слайда: {img_err}")
+                        s.shapes.add_picture(img_stream, left=PptxInches(8.0), top=PptxInches(1.8), width=PptxInches(4.5))
+                    except Exception:
+                        pass
 
             bio = io.BytesIO()
             prs.save(bio)
             bio.seek(0)
-
-            file_doc = BufferedInputFile(bio.read(), filename="MecauAI_Presentation_Visual.pptx")
+            file_doc = BufferedInputFile(bio.read(), filename="Presentation.pptx")
             await status_msg.delete()
-            await message.answer_document(file_doc, caption="📈 Твоя презентация с уникальными иллюстрациями готова!")
+            await message.answer_document(file_doc, caption="📈 Презентация готова!")
         except Exception as e:
             await status_msg.delete()
-            await message.answer("⚠️ Ошибка при создании презентации:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+            await message.answer(f"⚠️ Ошибка: {e}")
         return
 
     if user_id in excel_states:
         excel_states.remove(user_id)
-        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        status_msg = await message.answer("📊 Создаю структуру таблицы Excel...")
-        try:
-            prompt = message.text
-            response = await groq_client.chat.completions.create(
-                model=TEXT_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Ты аналитик данных. На основе запроса пользователя создай подробную и реалистичную таблицу Excel. "
-                            "Она должна содержать как минимум 4-5 столбцов и 5-10 строк данных (если это уместно). "
-                            "Ответ дай строго в формате JSON со списком массивов (строк), где первая строка — заголовки столбцов. "
-                            "Пример формата: [[\"Колонка 1\", \"Колонка 2\"], [\"Данные 1\", \"Данные 2\"]. "
-                            "Никакого другого текста, только JSON."
-                        )
-                    },
-                    {"role": "user", "content": f"Запрос для таблицы: {prompt}"}
-                ],
-                temperature=0.7
-            )
-            raw_content = clean_text(response.choices[0].message.content)
-            if "```json" in raw_content:
-                raw_content = raw_content.split("```json")[1].split("```")[0].strip()
-            elif "```" in raw_content:
-                raw_content = raw_content.split("```")[1].split("```")[0].strip()
-
-            table_data = json.loads(raw_content)
-
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Данные"
-
-            header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-            header_font = Font(name="Times New Roman", size=12, bold=True, color="FFFFFF")
-            regular_font = Font(name="Times New Roman", size=12)
-            thin_border = Border(
-                left=Side(style='thin', color='D9D9D9'),
-                right=Side(style='thin', color='D9D9D9'),
-                top=Side(style='thin', color='D9D9D9'),
-                bottom=Side(style='thin', color='D9D9D9')
-            )
-
-            for row_idx, row in enumerate(table_data, 1):
-                ws.append(row)
-                for col_idx in range(1, len(row) + 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    cell.border = thin_border
-                    if row_idx == 1:
-                        cell.fill = header_fill
-                        cell.font = header_font
-                        cell.alignment = Alignment(horizontal="center", vertical="center")
-                    else:
-                        cell.font = regular_font
-                        cell.alignment = Alignment(horizontal="left", vertical="center")
-
-            for col in ws.columns:
-                max_len = max(len(str(cell.value or '')) for cell in col)
-                col_letter = col[0].column_letter
-                ws.column_dimensions[col_letter].width = max(max_len + 2, 12)
-
-            bio = io.BytesIO()
-            wb.save(bio)
-            bio.seek(0)
-
-            file_doc = BufferedInputFile(bio.read(), filename="Table.xlsx")
-            await status_msg.delete()
-            await message.answer_document(file_doc, caption="📊 Твоя таблица Excel готова!")
-        except Exception as e:
-            await status_msg.delete()
-            await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
-        return
-
-    text_lower = message.text.lower().strip()
-    creator_keywords = [
-        "кто твой создатель", "кто тебя создал", "тебя кто создал", 
-        "кто твой разработчик", "автор кто", "кто тебя сделал",
-        "кто твой создатель?", "кто тебя создал?", "тебя кто создал?", 
-        "кто твой разработчик?", "автор кто?", "кто тебя сделал?"
-    ]
-    if text_lower in creator_keywords:
-        creator_reply = (
-            "Меня создал один единственный человек — мой разработчик @mecau 🚀\n\n"
-            "Именно он написал весь код, настроил мою логику, чтобы я помогал с учебой, текстами, презентациями и таблицами, "
-            "и продолжает постоянно меня улучшать.\n\n"
-            "—\n⚡ Есть предложения по улучшению или нашли баг? пишите @mecau"
-        )
-        await message.answer(creator_reply, parse_mode="HTML", disable_web_page_preview=True)
+        await message.answer("📊 Функционал Excel в работе...")
         return
 
     if message.text in MENU_BUTTONS:
         return
 
     if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
-        await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
+        await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
     save_user_id(user_id)
     user_data = get_user_data(user_id)
-    system_prompt = PROMPTS[user_data["mode"]]
+    current_mode = user_data["mode"]
+
+    system_prompt = PROMPTS.get(current_mode, PROMPTS["ai"])
 
     user_data["history"].append({"role": "user", "content": message.text})
     if len(user_data["history"]) > 6:
         user_data["history"] = user_data["history"][-6:]
 
-    strict_system_prompt = (
-        system_prompt + 
-        "\n\nВНИМАНИЕ: Категорически запрещено отвечать списком в 2-3 слова или телеграфным стилем. "
-        "Каждый ответ должен быть развернутой статьей с полными предложениями, абзацами и структурой."
-    )
-    messages_payload = [{"role": "system", "content": strict_system_prompt}] + user_data["history"]
+    messages_payload = [{"role": "system", "content": system_prompt}] + user_data["history"]
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     try:
@@ -823,18 +597,21 @@ async def handle_text(message: Message):
             messages=messages_payload,
             temperature=0.7
         )
-        ai_reply = clean_text(response.choices[0].message.content)
+        ai_reply = clean_text_for_html(response.choices[0].message.content)
         if not ai_reply:
             ai_reply = "Готово."
 
         user_data["history"].append({"role": "assistant", "content": ai_reply})
         user_data["last_output"] = ai_reply
 
-        full_message = f"{ai_reply}{AD_FOOTER}"
-
-        await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
-    except Exception as e:
-        await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+        if current_mode == "coder":
+            full_message = f"{ai_reply}\n\n{AD_FOOTER}"
+            await message.answer(full_message, parse_mode="Markdown", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
+        else:
+            full_message = f"{ai_reply}{AD_FOOTER}"
+            await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
+    except Exception:
+        await message.answer("⚠️ Ошибка при обработке запроса.")
 
 async def main():
     await bot.set_my_commands([
@@ -842,17 +619,9 @@ async def main():
         BotCommand(command="mode",  description="Сменить режим ассистента"),
         BotCommand(command="about", description="О возможностях"),
     ])
-    
     await bot.delete_webhook()
-    
-    while True:
-        try:
-            print("🚀 Бот MecauAI запущен и слушает обновления...")
-            await dp.start_polling(bot)
-        except Exception as e:
-            print(f"⚠️ Ошибка соединения: Перезапуск через 5 секунд...")
-            await asyncio.sleep(5)
+    print("🚀 Бот MecauAI запущен и слушает обновления...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
