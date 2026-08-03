@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -164,7 +165,7 @@ async def cmd_start(message: Message):
 
     start_text = (
         f"Привет, {message.from_user.first_name}! Ты активировал MecauAI 🚀\n\n"
-        "Я твой карманный помощник для учебы. Отправляй любые вопросы, задачи, конспекты, а также создавай презентации и таблицы!"
+        "Я твой карманный помощник для учебы. Отправляй любые вопросы, задачи, конспекты, а также создавай презентации с иллюстрациями и таблицы!"
     )
     await message.answer(start_text, reply_markup=keyboard_for(user_id))
 
@@ -193,7 +194,7 @@ async def cmd_about(message: Message):
         "• Анализ фото/файлов/текста: Быстрый разбор материалов и конспектов.\n"
         "• 📄 Экспорт в .docx: Сохранение любого ответа в Word.\n"
         "• 📑 Титульник по ГОСТу: Быстрое оформление титульных листов.\n"
-        "• 📈 Генерация презентаций (.pptx): Автоматическое создание слайдов.\n"
+        "• 📈 Генерация презентаций (.pptx) с ИИ-картинками.\n"
         "• 📊 Создание таблиц Excel (.xlsx): Аккуратные структурированные данные.\n"
         "• ⭐ Избранное: Сохранение важных ответов под рукой."
     )
@@ -241,7 +242,7 @@ async def cmd_ppt_prompt(message: Message):
         await message.answer(f"🔒 Сначала подпишись на канал:\n{CHANNEL_URL}", reply_markup=get_sub_keyboard())
         return
     ppt_states.add(user_id)
-    await message.answer("📈 Отправь тему или текст для презентации следующим сообщением, и я соберу слайды (.pptx)!")
+    await message.answer("📈 Отправь тему для презентации следующим сообщением, и я соберу слайды (.pptx), самостоятельно сгенерировав красивые иллюстрации под каждый слайд!")
 
 @dp.message(F.text == "📊 Создать таблицу Excel")
 async def cmd_excel_prompt(message: Message):
@@ -587,21 +588,22 @@ async def handle_text(message: Message):
     if user_id in ppt_states:
         ppt_states.remove(user_id)
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        status_msg = await message.answer("📈 Генерирую презентацию, пишу развернутый текст...")
+        status_msg = await message.answer("📈 Генерирую структуру, пишу тексты и создаю уникальные иллюстрации для слайдов...")
         try:
             prompt = message.text
+            
             response = await groq_client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[
                     {
                         "role": "system",
                         "content": (
-                            "Ты — профессиональный академический методист. На основе темы пользователя "
-                            "составь подробную презентацию из 6-8 слайдов. "
-                            "ВНИМАНИЕ: Текст на слайдах (points) должен быть развернутым и содержательным! "
-                            "Пиши полными предложениями (от 15 до 30 слов в каждом пункте), раскрывай суть, чтобы не было пустых слайдов. "
-                            "Ответ выдай строго в формате JSON без лишнего текста: "
-                            "[{\"title\": \"Заголовок\", \"points\": [\"Развернутый тезис 1...\", \"Развернутый тезис 2...\"]}]"
+                            "Ты — профессиональный академический методист и дизайнер презентаций. "
+                            "На основе темы пользователя составь презентацию из 6–8 структурированных слайдов. "
+                            "Для каждого слайда укажи заголовок (title), содержательные тезисы (points) в виде полных предложений "
+                            "и краткое описание для иллюстрации на английском языке (image_prompt), которая подходит по смыслу к слайду. "
+                            "Ответ выдай СТРОГО в формате JSON без какого-либо лишнего текста: "
+                            "[{\"title\": \"Заголовок\", \"points\": [\"Тезис 1...\", \"Тезис 2...\"], \"image_prompt\": \"Minimalist professional vector illustration of...\"}]"
                         )
                     },
                     {"role": "user", "content": f"Тема презентации: {prompt}"}
@@ -617,16 +619,20 @@ async def handle_text(message: Message):
             slides_data = json.loads(raw_content)
 
             prs = Presentation()
-            slide_layout = prs.slide_layouts[1]
+            prs.slide_width = PptxInches(13.333)
+            prs.slide_height = PptxInches(7.5)
 
             title_layout = prs.slide_layouts[0]
+            blank_layout = prs.slide_layouts[6]
+
+            # Титульный слайд
             slide = prs.slides.add_slide(title_layout)
-            
             title_shape = slide.shapes.title
-            title_shape.text = "Презентация"
+            title_shape.text = "Академическая презентация"
             if title_shape.text_frame.paragraphs:
                 title_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
                 title_shape.text_frame.paragraphs[0].font.size = PptxPt(40)
+                title_shape.text_frame.paragraphs[0].font.bold = True
 
             subtitle_shape = slide.placeholders[1]
             subtitle_shape.text = prompt
@@ -634,34 +640,66 @@ async def handle_text(message: Message):
                 subtitle_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
                 subtitle_shape.text_frame.paragraphs[0].font.size = PptxPt(24)
 
+            # Генерация содержательных слайдов
             for item in slides_data:
-                slide = prs.slides.add_slide(slide_layout)
+                slide = prs.slides.add_slide(blank_layout)
                 
-                title_shape = slide.shapes.title
-                title_shape.text = item.get("title", "Слайд")
-                if title_shape.text_frame.paragraphs:
-                    title_shape.text_frame.paragraphs[0].font.name = 'Times New Roman'
-                    title_shape.text_frame.paragraphs[0].font.size = PptxPt(32)
+                tb_title = slide.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
+                tf_title = tb_title.text_frame
+                tf_title.word_wrap = True
+                p_title = tf_title.paragraphs[0]
+                p_title.text = item.get("title", "Слайд")
+                p_title.font.name = 'Times New Roman'
+                p_title.font.size = PptxPt(30)
+                p_title.font.bold = True
+
+                tb_content = slide.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8), PptxInches(5.0))
+                tf_content = tb_content.text_frame
+                tf_content.word_wrap = True
                 
-                tf = slide.placeholders[1].text_frame
-                tf.text = ""
                 for pt in item.get("points", []):
-                    p = tf.add_paragraph()
-                    p.text = pt
-                    p.level = 0
+                    p = tf_content.add_paragraph() if tf_content.text else tf_content.paragraphs[0]
+                    p.text = "• " + pt
                     p.font.name = 'Times New Roman'
-                    p.font.size = PptxPt(20)
+                    p.font.size = PptxPt(18)
+                    p.space_after = PptxPt(12)
+
+                img_prompt = item.get("image_prompt")
+                if img_prompt:
+                    try:
+                        img_response = await groq_client.images.generate(
+                            model="dall-e-3",
+                            prompt=img_prompt + ", clean professional educational vector style, light background",
+                            size="1024x1024",
+                            quality="standard",
+                            n=1,
+                        )
+                        image_url = img_response.data[0].url
+                        
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(image_url) as resp:
+                                if resp.status == 200:
+                                    img_bytes = await resp.read()
+                                    image_stream = io.BytesIO(img_bytes)
+                                    slide.shapes.add_picture(
+                                        image_stream, 
+                                        left=PptxInches(8.0), 
+                                        top=PptxInches(1.8), 
+                                        width=PptxInches(4.5)
+                                    )
+                    except Exception as img_err:
+                        logging.warning(f"Не удалось сгенерировать картинку для слайда: {img_err}")
 
             bio = io.BytesIO()
             prs.save(bio)
             bio.seek(0)
 
-            file_doc = BufferedInputFile(bio.read(), filename="Presentation.pptx")
+            file_doc = BufferedInputFile(bio.read(), filename="MecauAI_Presentation_Visual.pptx")
             await status_msg.delete()
-            await message.answer_document(file_doc, caption="📈 Твоя развернутая презентация готова!")
+            await message.answer_document(file_doc, caption="📈 Твоя презентация с уникальными иллюстрациями готова!")
         except Exception as e:
             await status_msg.delete()
-            await message.answer("⚠️ Ошибка при обработке:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
+            await message.answer("⚠️ Ошибка при создании презентации:\n\nЕсли это повторяется, сообщи разработчику: @mecau")
         return
 
     if user_id in excel_states:
@@ -817,3 +855,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+        
