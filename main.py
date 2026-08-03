@@ -739,7 +739,6 @@ async def handle_text(message: Message):
             except Exception:
                 pass
             await message.answer(f"⚠️ Произошла ошибка при создании презентации. Попробуй еще раз.")
-        return
 
     if user_id in excel_states:
         excel_states.remove(user_id)
