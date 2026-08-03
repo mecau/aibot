@@ -143,8 +143,8 @@ def get_admin_keyboard():
             [KeyboardButton(text="📄 Скачать ответ в Word"), KeyboardButton(text="📑 Создать титульник ГОСТ")],
             [KeyboardButton(text="📈 Создать презентацию"), KeyboardButton(text="📊 Создать таблицу Excel")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="🔄 Сменить режим")],
-            [KeyboardButton(text="ℹ️ О MecauAI")],
-            [KeyboardButton(text="📊 Статистика бота"), KeyboardButton(text="📢 Сделать рассылку")]
+            [KeyboardButton(text="ℹ️ О MecauAI"), KeyboardButton(text="📊 Статистика бота")],
+            [KeyboardButton(text="📢 Сделать рассылку")]
         ],
         resize_keyboard=True
     )
@@ -507,7 +507,6 @@ async def handle_text(message: Message):
         status_msg = await message.answer("📈 Генерирую презентацию и иллюстрации, подожди немного...")
         try:
             await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-            prompt = message.text
             user_images = user_ppt_images.pop(user_id, [])
             num_slides = max(len(user_images), 5) if user_images else 5
 
@@ -518,7 +517,7 @@ async def handle_text(message: Message):
                         "role": "system",
                         "content": f"Составь презентацию ровно из {num_slides} слайдов. Ответ выдай СТРОГО в формате валидного JSON без markdown-оформления (без ```json), в виде списка объектов: [{{\"title\": \"Заголовок слайда\", \"points\": [\"Тезис 1\", \"Тезис 2\"], \"image_prompt\": \"Detailed professional visual illustration of the slide topic in English\"}}]. В поле image_prompt ВСЕГДА пиши качественный промпт на английском языке для генерации картинки."
                     },
-                    {"role": "user", "content": f"Тема: {prompt}"}
+                    {"role": "user", "content": f"Тема: {message.text}"}
                 ],
                 temperature=0.7
             )
@@ -537,7 +536,7 @@ async def handle_text(message: Message):
 
             slide = prs.slides.add_slide(prs.slide_layouts[0])
             slide.shapes.title.text = "Презентация проекта"
-            slide.placeholders[1].text = prompt
+            slide.placeholders[1].text = message.text
 
             async with aiohttp.ClientSession() as session:
                 for idx, item in enumerate(slides_data):
