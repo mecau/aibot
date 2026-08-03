@@ -577,10 +577,87 @@ async def handle_text(message: Message):
             bio = io.BytesIO()
             prs.save(bio)
             bio.seek(0)
+    if user_id in ppt_states:
+        ppt_states.remove(user_id)
+        status_msg = await message.answer("📈 Генерирую презентацию и иллюстрации, подожди немного...")
+        try:
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            prompt = message.text
+            user_images = user_ppt_images.pop(user_id, [])
+            num_slides = max(len(user_images), 5) if user_images else 5
+
+            response = await groq_client.chat.completions.create(
+                model=TEXT_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"Составь презентацию ровно из {num_slides} слайдов. Ответ выдай СТРОГО в формате валидного JSON без markdown-оформления (без ```json), в виде списка объектов: [{{\"title\": \"Заголовок слайда\", \"points\": [\"Тезис 1\", \"Тезис 2\"], \"image_prompt\": \"Detailed professional visual illustration of the slide topic in English\"}}]. В поле image_prompt ВСЕГДА пиши качественный промпт на английском языке для генерации картинки."
+                    },
+                    {"role": "user", "content": f"Тема: {prompt}"}
+                ],
+                temperature=0.7
+            )
+            raw_content = clean_text_for_html(response.choices[0].message.content)
+            
+            if "```json" in raw_content:
+                raw_content = raw_content.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_content:
+                raw_content = raw_content.split("```")[1].split("```")[0].strip()
+            
+            slides_data = json.loads(raw_content)
+            
+            prs = Presentation()
+            prs.slide_width = PptxInches(13.333)
+            prs.slide_height = PptxInches(7.5)
+
+            slide = prs.slides.add_slide(prs.slide_layouts[0])
+            slide.shapes.title.text = "Презентация проекта"
+            slide.placeholders[1].text = prompt
+
+            async with aiohttp.ClientSession() as session:
+                for idx, item in enumerate(slides_data):
+                    s = prs.slides.add_slide(prs.slide_layouts[6])
+                    tb_title = s.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
+                    tb_title.text_frame.text = item.get("title", f"Слайд {idx+1}")
+                    
+                    img_stream = None
+                    if user_images and idx < len(user_images):
+                        img_stream = io.BytesIO(user_images[idx])
+                    elif "image_prompt" in item and item["image_prompt"]:
+                        try:
+                            img_prompt = urllib.parse.quote(item["image_prompt"])
+                            img_url = f"[https://gen.pollinations.ai/image/](https://gen.pollinations.ai/image/){img_prompt}?width=800&height=600&nologo=true&model=flux"
+                            async with session.get(img_url, timeout=15) as resp:
+                                if resp.status == 200:
+                                    img_bytes = await resp.read()
+                                    if len(img_bytes) > 1000: # проверка что это реально картинка, а не ошибка
+                                        img_stream = io.BytesIO(img_bytes)
+                        except Exception as gen_err:
+                            logging.error(f"Не удалось сгенерировать картинку для слайда {idx}: {gen_err}")
+
+                    has_img = img_stream is not None
+                    tb_content = s.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8) if has_img else PptxInches(11.7), PptxInches(5.0))
+                    tf = tb_content.text_frame
+                    tf.word_wrap = True
+                    for pt in item.get("points", []):
+                        p = tf.add_paragraph() if tf.text else tf.paragraphs[0]
+                        p.text = "• " + pt
+                        p.font.name = 'Times New Roman'
+                        p.font.size = PptxPt(18)
+
+                    if has_img and img_stream:
+                        try:
+                            s.shapes.add_picture(img_stream, left=PptxInches(8.0), top=PptxInches(1.8), width=PptxInches(4.5))
+                        except Exception as img_err:
+                            logging.error(f"Не удалось вставить картинку на слайд {idx}: {img_err}")
+
+            bio = io.BytesIO()
+            prs.save(bio)
+            bio.seek(0)
             file_doc = BufferedInputFile(bio.read(), filename="Presentation.pptx")
             
             await status_msg.delete()
-            await message.answer_document(file_doc, caption="📈 Презентация сгенерирована!")
+            await message.answer_document(file_doc, caption="📈 Презентация с картинками готова!")
             
         except Exception as e:
             logging.error(f"Критическая ошибка при генерации презентации: {e}", exc_info=True)
@@ -589,6 +666,8 @@ async def handle_text(message: Message):
             except Exception:
                 pass
             await message.answer(f"⚠️ Произошла ошибка при создании презентации. Попробуй еще раз.")
+        return
+
         return
 
     if user_id in excel_states:
