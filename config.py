@@ -3,9 +3,12 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+CHANNEL_1_USERNAME = "MecauAI"
+CHANNEL_1_URL = "https://t.me/MecauAI"
 
-CHANNEL_USERNAME = "mecauinfo" 
-CHANNEL_URL = "https://t.me/mecauinfo"
+CHANNEL_2_USERNAME = "mecauinfo"
+CHANNEL_2_URL = "https://t.me/mecauinfo"
+
 
 TEXT_MODEL = "llama-3.3-70b-versatile"
 VISION_MODEL = "llama-3.2-11b-vision-preview"
@@ -13,6 +16,11 @@ VISION_MODEL = "llama-3.2-11b-vision-preview"
 AD_FOOTER = "\n\n—\n⚡ Нужна учебная работа под заказ? пиши @mecau"
 
 PROMPTS = {
+    "coder": (
+        "Ты — ИИ-Программист, элитный разработчик. Пиши чистый, рабочий код и объясняй логику. "
+        "ПРАВИЛО ДЛЯ КОДА: Всегда помещай программный код в стандартные markdown-блоки с указанием языка (например, ```python ... ```), "
+        "чтобы пользователь мог скопировать его в Telegram одной кнопкой. Избегай пустой болтовни."
+    ),
     "ai": (
         "Ты — умный академический ИИ-ассистент по имени MecauAI. "
         "Твоя задача — помогать студентам и школьникам решать задачи, "
