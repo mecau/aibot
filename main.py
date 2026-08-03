@@ -330,7 +330,7 @@ async def cb_answer_actions(callback: types.CallbackQuery):
             full_reply = f"💡 <b>Коротко на пальцах:</b>\n\n{simplified_reply}{AD_FOOTER}"
             await callback.message.answer(full_reply, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
         except Exception:
-            await callback.message.answer("⚠️ Ошибка при обработке.")
+            await callback.message.answer("⚠️ Ошибка при обработке. Попробуй ещё раз. Если повторится, пиши - @mecau")
 
 @dp.message(F.text == "📄 Скачать ответ в Word")
 async def cmd_download_word(message: Message):
@@ -342,7 +342,7 @@ async def cmd_download_word(message: Message):
     user_data = get_user_data(user_id)
     text_to_save = user_data.get("last_output", "").strip()
     if not text_to_save or text_to_save == "Здесь пока нет ответов.":
-        await message.answer("⚠️ Нет данных для сохранения.")
+        await message.answer("⚠️ Нет данных для сохранения. Попробуй ещё раз. Если повторится, пиши - @mecau")
         return
 
     doc = Document()
@@ -479,7 +479,7 @@ async def handle_photo(message: Message):
         user_data["last_output"] = reply
         await message.answer(f"{reply}{AD_FOOTER}", parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception:
-        await message.answer("⚠️ Ошибка при обработке изображения.")
+        await message.answer("⚠️ Ошибка при обработке изображения. Попробуй ещё раз. Если повторится, пиши - @mecauэ")
 
 @dp.message(F.text)
 async def handle_text(message: Message):
@@ -500,9 +500,9 @@ async def handle_text(message: Message):
         await status_msg.edit_text(f"✅ Рассылка завершена!\n\n👥 Доставлено: {success}\n❌ Ошибок: {failed}")
         return
 
-    if user_id in ppt_states:
+        if user_id in ppt_states:
         ppt_states.remove(user_id)
-        status_msg = await message.answer("📈 Генерирую презентацию, подожди пару секунд...")
+        status_msg = await message.answer("📈 Генерирую презентацию и иллюстрации, подожди немного...")
         try:
             await bot.send_chat_action(chat_id=message.chat.id, action="typing")
             prompt = message.text
@@ -514,8 +514,8 @@ async def handle_text(message: Message):
                 messages=[
                     {
                         "role": "system",
-                        "content": f"Составь презентацию ровно из {num_slides} слайдов. Ответ выдай СТРОГО в формате валидного JSON без markdown-оформления (без ```json), в виде списка объектов: [{{\"title\": \"Заголовок\", \"points\": [\"Тезис 1\", \"Тезис 2\"]}}]"
-                    },
+                        "content": f"Составь презентацию ровно из {num_slides} слайдов. Ответ выдай СТРОГО в формате валидного JSON без markdown-оформления (без ```json), в виде списка объектов: [{{\"title\": \"Заголовок\", \"points\": [\"Тезис 1\", \"Тезис 2\"], \"image_prompt\": \"краткое описание картинки на английском для генерации\"}}]"}
+                    ,
                     {"role": "user", "content": f"Тема: {prompt}"}
                 ],
                 temperature=0.7
@@ -533,35 +533,48 @@ async def handle_text(message: Message):
             prs.slide_width = PptxInches(13.333)
             prs.slide_height = PptxInches(7.5)
 
+            # Титульный слайд
             slide = prs.slides.add_slide(prs.slide_layouts[0])
             slide.shapes.title.text = "Презентация проекта"
             slide.placeholders[1].text = prompt
 
-            for idx, item in enumerate(slides_data):
-                s = prs.slides.add_slide(prs.slide_layouts[6])
-                tb_title = s.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
-                tb_title.text_frame.text = item.get("title", f"Слайд {idx+1}")
-                
-                has_img = False
-                img_stream = None
-                if user_images and idx < len(user_images):
-                    img_stream = io.BytesIO(user_images[idx])
-                    has_img = True
+            async with aiohttp.ClientSession() as session:
+                for idx, item in enumerate(slides_data):
+                    s = prs.slides.add_slide(prs.slide_layouts[6])
+                    tb_title = s.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
+                    tb_title.text_frame.text = item.get("title", f"Слайд {idx+1}")
+                    
+                    img_stream = None
+                    # 1. Если пользователь прислал свои фото — берем их по порядку
+                    if user_images and idx < len(user_images):
+                        img_stream = io.BytesIO(user_images[idx])
+                    # 2. Если своих фото нет, но ИИ придумал описание — генерируем картинку через нейросеть
+                    elif "image_prompt" in item:
+                        try:
+                            img_prompt = item["image_prompt"].replace(" ", "%20")
+                            img_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){img_prompt}?width=800&height=600&nologo=true"
+                            async with session.get(img_url) as resp:
+                                if resp.status == 200:
+                                    img_bytes = await resp.read()
+                                    img_stream = io.BytesIO(img_bytes)
+                        except Exception as gen_err:
+                            logging.error(f"Не удалось сгенерировать картинку для слайда {idx}: {gen_err}")
 
-                tb_content = s.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8) if has_img else PptxInches(11.7), PptxInches(5.0))
-                tf = tb_content.text_frame
-                tf.word_wrap = True
-                for pt in item.get("points", []):
-                    p = tf.add_paragraph() if tf.text else tf.paragraphs[0]
-                    p.text = "• " + pt
-                    p.font.name = 'Times New Roman'
-                    p.font.size = PptxPt(18)
+                    has_img = img_stream is not None
+                    tb_content = s.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8) if has_img else PptxInches(11.7), PptxInches(5.0))
+                    tf = tb_content.text_frame
+                    tf.word_wrap = True
+                    for pt in item.get("points", []):
+                        p = tf.add_paragraph() if tf.text else tf.paragraphs[0]
+                        p.text = "• " + pt
+                        p.font.name = 'Times New Roman'
+                        p.font.size = PptxPt(18)
 
-                if has_img and img_stream:
-                    try:
-                        s.shapes.add_picture(img_stream, left=PptxInches(8.0), top=PptxInches(1.8), width=PptxInches(4.5))
-                    except Exception as img_err:
-                        logging.error(f"Не удалось вставить картинку на слайд {idx}: {img_err}")
+                    if has_img and img_stream:
+                        try:
+                            s.shapes.add_picture(img_stream, left=PptxInches(8.0), top=PptxInches(1.8), width=PptxInches(4.5))
+                        except Exception as img_err:
+                            logging.error(f"Не удалось вставить картинку на слайд {idx}: {img_err}")
 
             bio = io.BytesIO()
             prs.save(bio)
@@ -569,7 +582,7 @@ async def handle_text(message: Message):
             file_doc = BufferedInputFile(bio.read(), filename="Presentation.pptx")
             
             await status_msg.delete()
-            await message.answer_document(file_doc, caption="📈 Презентация полностью готова!")
+            await message.answer_document(file_doc, caption="📈 Презентация сгенерирована! Картинки подобраны автоматически.")
             
         except Exception as e:
             logging.error(f"Критическая ошибка при генерации презентации: {e}", exc_info=True)
@@ -577,8 +590,9 @@ async def handle_text(message: Message):
                 await status_msg.delete()
             except Exception:
                 pass
-            await message.answer(f"⚠️ Произошла ошибка при создании презентации. Попробуй еще раз.")
+            await message.answer(f"⚠️ Произошла ошибка при создании презентации. Попробуй ещё раз. Если повторится, пиши - @mecau")
         return
+
 
     if user_id in excel_states:
         excel_states.remove(user_id)
@@ -625,7 +639,7 @@ async def handle_text(message: Message):
             full_message = f"{ai_reply}{AD_FOOTER}"
             await message.answer(full_message, parse_mode="HTML", reply_markup=get_answer_inline_keyboard(), disable_web_page_preview=True)
     except Exception:
-        await message.answer("⚠️ Ошибка при обработке запроса.")
+        await message.answer("⚠️ Ошибка при обработке запроса. Попробуй ещё раз. Если повторится, пиши - @mecau")
 
 async def main():
     await bot.set_my_commands([
