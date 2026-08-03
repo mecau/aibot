@@ -500,9 +500,8 @@ async def handle_text(message: Message):
         await status_msg.edit_text(f"✅ Рассылка завершена!\n\n👥 Доставлено: {success}\n❌ Ошибок: {failed}")
         return
 
-        if user_id in ppt_states:
-        ppt_states.remove(user_id)
-        status_msg = await message.answer("📈 Генерирую презентацию и иллюстрации, подожди немного...")
+            if user_id in ppt_states: ppt_states.remove(user_id); status_msg = await message.answer("📈 Генерирую презентацию и иллюстрации, подожди немного...")
+
         try:
             await bot.send_chat_action(chat_id=message.chat.id, action="typing")
             prompt = message.text
