@@ -105,13 +105,16 @@ def get_user_data(user_id: int):
     return users_db[user_id]
 
 async def check_subscription(user_id: int) -> bool:
+    if user_id == MY_ADMIN_ID:
+        return True
     channels = [CHANNEL_1_USERNAME, CHANNEL_2_USERNAME]
     for ch in channels:
         try:
             member = await bot.get_chat_member(chat_id=f"@{ch}", user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
                 return False
-        except Exception:
+        except Exception as e:
+            logging.error(f"Ошибка проверки подписки на канал @{ch}: {e}")
             return False
     return True
 
@@ -165,17 +168,16 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     save_user_id(user_id)
 
-    if user_id != MY_ADMIN_ID:
-        if not await check_subscription(user_id):
-            await message.answer(
-                f"🔒 Доступ заблокирован!\n\n"
-                f"Чтобы пользоваться MecauAI, подпишись на оба наших канала:\n"
-                f" 👉 {CHANNEL_1_URL}\n"
-                f" 👉 {CHANNEL_2_URL}\n\n"
-                f"После подписки нажми кнопку ниже 👇",
-                reply_markup=get_sub_keyboard()
-            )
-            return
+    if not await check_subscription(user_id):
+        await message.answer(
+            f"🔒 Доступ заблокирован!\n\n"
+            f"Чтобы пользоваться MecauAI, подпишись на оба наших канала:\n"
+            f" 👉 {CHANNEL_1_URL}\n"
+            f" 👉 {CHANNEL_2_URL}\n\n"
+            f"После подписки нажми кнопку ниже 👇",
+            reply_markup=get_sub_keyboard()
+        )
+        return
 
     start_text = (
         f"Привет, {message.from_user.first_name}! Ты активировал MecauAI 🚀\n\n"
@@ -188,7 +190,10 @@ async def cb_check_sub(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     if await check_subscription(user_id):
         save_user_id(user_id)
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await callback.message.answer(
             "🎉 Подписка на оба канала подтверждена! Добро пожаловать в MecauAI 🚀",
             reply_markup=keyboard_for(user_id)
@@ -199,7 +204,7 @@ async def cb_check_sub(callback: types.CallbackQuery):
 @dp.message(F.text == "ℹ️ О MecauAI")
 @dp.message(Command("about"))
 async def cmd_about(message: Message):
-    if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
+    if not await check_subscription(message.from_user.id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     about_text = (
@@ -215,7 +220,7 @@ async def cmd_about(message: Message):
 @dp.message(F.text == "🔄 Сменить режим")
 @dp.message(Command("mode"))
 async def cmd_mode(message: Message):
-    if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
+    if not await check_subscription(message.from_user.id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -256,7 +261,7 @@ async def cmd_broadcast_prompt(message: Message):
 @dp.message(F.text == "📈 Создать презентацию")
 async def cmd_ppt_prompt(message: Message):
     user_id = message.from_user.id
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+    if not await check_subscription(user_id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     ppt_states.add(user_id)
@@ -269,7 +274,7 @@ async def cmd_ppt_prompt(message: Message):
 @dp.message(F.text == "📊 Создать таблицу Excel")
 async def cmd_excel_prompt(message: Message):
     user_id = message.from_user.id
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+    if not await check_subscription(user_id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     excel_states.add(user_id)
@@ -278,7 +283,7 @@ async def cmd_excel_prompt(message: Message):
 @dp.message(F.text == "⭐ Избранное")
 async def cmd_favorites(message: Message):
     user_id = message.from_user.id
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+    if not await check_subscription(user_id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
@@ -330,7 +335,7 @@ async def cb_answer_actions(callback: types.CallbackQuery):
 @dp.message(F.text == "📄 Скачать ответ в Word")
 async def cmd_download_word(message: Message):
     user_id = message.from_user.id
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+    if not await check_subscription(user_id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
@@ -361,7 +366,7 @@ async def cmd_download_word(message: Message):
 
 @dp.message(F.text == "📑 Создать титульник ГОСТ")
 async def cmd_gost_title(message: Message):
-    if message.from_user.id != MY_ADMIN_ID and not await check_subscription(message.from_user.id):
+    if not await check_subscription(message.from_user.id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -439,7 +444,7 @@ MENU_BUTTONS = {
 @dp.message(F.photo)
 async def handle_photo(message: Message):
     user_id = message.from_user.id
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+    if not await check_subscription(user_id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
@@ -497,47 +502,50 @@ async def handle_text(message: Message):
 
     if user_id in ppt_states:
         ppt_states.remove(user_id)
-        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        status_msg = await message.answer("📈 Генерирую презентацию...")
+        status_msg = await message.answer("📈 Генерирую презентацию, подожди пару секунд...")
         try:
-    prompt = message.text
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            prompt = message.text
+            user_images = user_ppt_images.pop(user_id, [])
+            num_slides = max(len(user_images), 5) if user_images else 5
+
             response = await groq_client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[
                     {
                         "role": "system",
-                        "content": "Составь презентацию из 6-8 слайдов. Ответ выдай СТРОГО в формате JSON без лишнего текста: [{\"title\": \"Заголовок\", \"points\": [\"Тезис 1\"]}]"
+                        "content": f"Составь презентацию ровно из {num_slides} слайдов. Ответ выдай СТРОГО в формате валидного JSON без markdown-оформления (без ```json), в виде списка объектов: [{{\"title\": \"Заголовок\", \"points\": [\"Тезис 1\", \"Тезис 2\"]}}]"
                     },
                     {"role": "user", "content": f"Тема: {prompt}"}
                 ],
                 temperature=0.7
             )
             raw_content = clean_text_for_html(response.choices[0].message.content)
+            
             if "```json" in raw_content:
                 raw_content = raw_content.split("```json")[1].split("```")[0].strip()
             elif "```" in raw_content:
                 raw_content = raw_content.split("```")[1].split("```")[0].strip()
             
             slides_data = json.loads(raw_content)
+            
             prs = Presentation()
             prs.slide_width = PptxInches(13.333)
             prs.slide_height = PptxInches(7.5)
 
             slide = prs.slides.add_slide(prs.slide_layouts[0])
-            slide.shapes.title.text = "Академическая презентация"
+            slide.shapes.title.text = "Презентация проекта"
             slide.placeholders[1].text = prompt
-
-            user_images = user_ppt_images.pop(user_id, [])
 
             for idx, item in enumerate(slides_data):
                 s = prs.slides.add_slide(prs.slide_layouts[6])
                 tb_title = s.shapes.add_textbox(PptxInches(0.8), PptxInches(0.6), PptxInches(11.7), PptxInches(1.0))
-                tb_title.text_frame.text = item.get("title", "Слайд")
+                tb_title.text_frame.text = item.get("title", f"Слайд {idx+1}")
                 
                 has_img = False
                 img_stream = None
-                if user_images:
-                    img_stream = io.BytesIO(user_images[idx % len(user_images)])
+                if user_images and idx < len(user_images):
+                    img_stream = io.BytesIO(user_images[idx])
                     has_img = True
 
                 tb_content = s.shapes.add_textbox(PptxInches(0.8), PptxInches(1.8), PptxInches(6.8) if has_img else PptxInches(11.7), PptxInches(5.0))
@@ -552,18 +560,24 @@ async def handle_text(message: Message):
                 if has_img and img_stream:
                     try:
                         s.shapes.add_picture(img_stream, left=PptxInches(8.0), top=PptxInches(1.8), width=PptxInches(4.5))
-                    except Exception:
-                        pass
+                    except Exception as img_err:
+                        logging.error(f"Не удалось вставить картинку на слайд {idx}: {img_err}")
 
             bio = io.BytesIO()
             prs.save(bio)
             bio.seek(0)
             file_doc = BufferedInputFile(bio.read(), filename="Presentation.pptx")
+            
             await status_msg.delete()
-            await message.answer_document(file_doc, caption="📈 Презентация готова!")
+            await message.answer_document(file_doc, caption="📈 Презентация полностью готова!")
+            
         except Exception as e:
-            await status_msg.delete()
-            await message.answer(f"⚠️ Ошибка: {e}")
+            logging.error(f"Критическая ошибка при генерации презентации: {e}", exc_info=True)
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await message.answer(f"⚠️ Произошла ошибка при создании презентации. Попробуй еще раз.")
         return
 
     if user_id in excel_states:
@@ -574,7 +588,7 @@ async def handle_text(message: Message):
     if message.text in MENU_BUTTONS:
         return
 
-    if user_id != MY_ADMIN_ID and not await check_subscription(user_id):
+    if not await check_subscription(user_id):
         await message.answer(f"🔒 Сначала подпишись на каналы:\n1️⃣ {CHANNEL_1_URL}\n2️⃣ {CHANNEL_2_URL}", reply_markup=get_sub_keyboard())
         return
 
